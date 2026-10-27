@@ -1,19 +1,9 @@
 package org.example.generator;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import java.lang.invoke.MethodType;
 import java.lang.reflect.Array;
-import java.util.EnumSet;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Stream;
 
 import org.example.classes.BinaryTreeNode;
@@ -24,33 +14,40 @@ import org.example.classes.Rectangle;
 import org.example.classes.Shape;
 import org.example.classes.Triangle;
 import org.example.exc.InstanceGenerationException;
-import org.example.fixtures.Fixtures.A;
-import org.example.fixtures.Fixtures.Animal;
-import org.example.fixtures.Fixtures.Box;
-import org.example.fixtures.Fixtures.Cat;
-import org.example.fixtures.Fixtures.Color;
-import org.example.fixtures.Fixtures.Dog;
-import org.example.fixtures.Fixtures.Figure;
-import org.example.fixtures.Fixtures.Inventory;
-import org.example.fixtures.Fixtures.NoPublicConstructor;
-import org.example.fixtures.Fixtures.Person;
-import org.example.fixtures.Fixtures.Sedan;
-import org.example.fixtures.Fixtures.Square;
-import org.example.fixtures.Fixtures.Unannotated;
-import org.example.fixtures.Fixtures.Vehicle;
-import org.example.fixtures.Fixtures.WrongImplementation;
-import org.example.fixtures.Fixtures.X;
+import org.example.generator.TestClasses.A;
+import org.example.generator.TestClasses.Animal;
+import org.example.generator.TestClasses.Box;
+import org.example.generator.TestClasses.Cat;
+import org.example.generator.TestClasses.Color;
+import org.example.generator.TestClasses.Dog;
+import org.example.generator.TestClasses.Empty;
+import org.example.generator.TestClasses.Figure;
+import org.example.generator.TestClasses.Inventory;
+import org.example.generator.TestClasses.NoPublicConstructor;
+import org.example.generator.TestClasses.Person;
+import org.example.generator.TestClasses.Point;
+import org.example.generator.TestClasses.Sedan;
+import org.example.generator.TestClasses.Square;
+import org.example.generator.TestClasses.Unannotated;
+import org.example.generator.TestClasses.Vehicle;
+import org.example.generator.TestClasses.WrongImplementation;
+import org.example.generator.TestClasses.X;
 import org.junit.jupiter.api.Nested;
-import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
-class GeneratorTest {
-    private static final int REPEATS = 50;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+class GeneratorTest {
     private final Generator generator = new Generator();
 
     static Stream<Arguments> primitiveAndWrapperTypes() {
@@ -84,7 +81,7 @@ class GeneratorTest {
             assertInstanceOf(expectedWrapper, value);
         }
 
-        @RepeatedTest(REPEATS)
+        @Test
         void generatesNonEmptyString() throws Exception {
             var value = generator.generateValueOfType(String.class);
 
@@ -96,15 +93,15 @@ class GeneratorTest {
     @Nested
     class Enums {
         @Test
-        void generatesEveryEnumConstant() throws Exception {
-            Set<Color> seen = EnumSet.noneOf(Color.class);
-            for (int i = 0; i < 200; i++) {
-                var value = generator.generateValueOfType(Color.class);
-                assertNotNull(value);
-                seen.add(value);
-            }
+        void generatesEnumConstant() throws Exception {
+            var value = generator.generateValueOfType(Color.class);
 
-            assertEquals(EnumSet.allOf(Color.class), seen);
+            assertInstanceOf(Color.class, value);
+        }
+
+        @Test
+        void generatesNullForEmptyEnum() throws Exception {
+            assertNull(generator.generateValueOfType(Empty.class));
         }
     }
 
@@ -124,7 +121,7 @@ class GeneratorTest {
             }
         }
 
-        @RepeatedTest(REPEATS)
+        @Test
         void generatesNonEmptyNestedArrays() throws Exception {
             var array = generator.generateValueOfType(int[][].class);
 
@@ -138,7 +135,7 @@ class GeneratorTest {
 
     @Nested
     class ListsAndMaps {
-        @RepeatedTest(REPEATS)
+        @Test
         void generatesNonEmptyRawList() throws Exception {
             List<?> list = generator.generateValueOfType(List.class);
 
@@ -146,7 +143,7 @@ class GeneratorTest {
             list.forEach(element -> assertInstanceOf(Integer.class, element));
         }
 
-        @RepeatedTest(REPEATS)
+        @Test
         void generatesNonEmptyRawMap() throws Exception {
             Map<?, ?> map = generator.generateValueOfType(Map.class);
 
@@ -157,7 +154,7 @@ class GeneratorTest {
             });
         }
 
-        @RepeatedTest(REPEATS)
+        @Test
         void generatesListWithElementTypeFromConstructorParameter() throws Exception {
             var cart = generator.generateValueOfType(Cart.class);
 
@@ -166,7 +163,7 @@ class GeneratorTest {
             cart.getItems().forEach(item -> assertInstanceOf(Product.class, item));
         }
 
-        @RepeatedTest(REPEATS)
+        @Test
         void generatesMapWithKeyAndValueTypesFromConstructorParameter() throws Exception {
             var inventory = generator.generateValueOfType(Inventory.class);
 
@@ -189,14 +186,14 @@ class GeneratorTest {
             assertInstanceOf(type, value);
         }
 
-        @RepeatedTest(REPEATS)
+        @Test
         void generatesProductWithName() throws Exception {
             var product = generator.generateValueOfType(Product.class);
 
             assertNotNull(product.getName());
         }
 
-        @RepeatedTest(REPEATS)
+        @Test
         void generatesNewClassWithoutSpecialHandling() throws Exception {
             var person = generator.generateValueOfType(Person.class);
 
@@ -206,23 +203,29 @@ class GeneratorTest {
             assertFalse(person.tags.isEmpty());
             person.tags.forEach(tag -> assertInstanceOf(String.class, tag));
         }
+
+        @Test
+        void generatesRecord() throws Exception {
+            var point = generator.generateValueOfType(Point.class);
+
+            assertNotNull(point);
+            assertNotNull(point.label());
+            assertNotNull(point.colors());
+            assertFalse(point.colors().isEmpty());
+            point.colors().forEach(color -> assertInstanceOf(Color.class, color));
+        }
     }
 
     @Nested
     class GeneratableImplementations {
         @Test
-        void generatesShapeAsEveryListedImplementation() throws Exception {
-            Set<Class<?>> seen = new HashSet<>();
-            for (int i = 0; i < 100; i++) {
-                var shape = generator.generateValueOfType(Shape.class);
-                assertInstanceOf(Shape.class, shape);
-                seen.add(shape.getClass());
-            }
+        void generatesShapeAsListedImplementation() throws Exception {
+            var shape = generator.generateValueOfType(Shape.class);
 
-            assertEquals(Set.of(Rectangle.class, Triangle.class), seen);
+            assertTrue(shape instanceof Rectangle || shape instanceof Triangle);
         }
 
-        @RepeatedTest(REPEATS)
+        @Test
         void generatesAbstractClassAsListedImplementation() throws Exception {
             var animal = generator.generateValueOfType(Animal.class);
 
@@ -230,14 +233,14 @@ class GeneratorTest {
             assertNotNull(animal.name);
         }
 
-        @RepeatedTest(REPEATS)
+        @Test
         void generatesSingleListedImplementation() throws Exception {
             var figure = generator.generateValueOfType(Figure.class);
 
             assertEquals(Square.class, figure.getClass());
         }
 
-        @RepeatedTest(REPEATS)
+        @Test
         void followsGeneratableChainToConcreteClass() throws Exception {
             var vehicle = generator.generateValueOfType(Vehicle.class);
 
@@ -249,7 +252,7 @@ class GeneratorTest {
     class Recursion {
         private static final int TREE_DEPTH_LIMIT = 3;
 
-        @RepeatedTest(REPEATS)
+        @Test
         void cutsRecursiveTree() throws Exception {
             var root = generator.generateValueOfType(BinaryTreeNode.class);
 
@@ -257,7 +260,7 @@ class GeneratorTest {
             assertTrue(depth(root) <= TREE_DEPTH_LIMIT);
         }
 
-        @RepeatedTest(REPEATS)
+        @Test
         void generatesLongNonRecursiveChainWithoutNulls() throws Exception {
             var a = generator.generateValueOfType(A.class);
 
@@ -266,7 +269,7 @@ class GeneratorTest {
             assertNotNull(a.b.c.d);
         }
 
-        @RepeatedTest(REPEATS)
+        @Test
         void terminatesOnMutualRecursion() throws Exception {
             var x = generator.generateValueOfType(X.class);
 

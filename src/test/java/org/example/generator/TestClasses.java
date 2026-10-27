@@ -1,16 +1,19 @@
-package org.example.fixtures;
+package org.example.generator;
 
 import java.util.List;
 import java.util.Map;
 
 import org.example.annotations.Generatable;
 
-public final class Fixtures {
-    private Fixtures() {
-    }
-
+public final class TestClasses {
     public enum Color {
         RED, GREEN, BLUE
+    }
+
+    public enum Empty {
+    }
+
+    public record Point(double x, double y, String label, List<Color> colors) {
     }
 
     public static class Inventory {
