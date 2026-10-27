@@ -1,17 +1,17 @@
 package org.example;
 
 
-import org.example.classes.Example;
-import org.example.generator.Generator;
+import java.util.ArrayList;
+import java.util.List;
 
-import java.util.Arrays;
+import org.example.generator.Generator;
 
 public class GenerateExample {
     public static void main(String[] args) {
-        var gen = new Generator();
+        var generator = new Generator();
         try {
-            var generated = gen.generateValueOfType(int[][][].class);
-            System.out.println(Arrays.toString(generated));
+            var generated = generator.generateValueOfType(ArrayList.class);
+            System.out.println(generated);
         } catch (Throwable e) {
             throw new RuntimeException(e);
         }
