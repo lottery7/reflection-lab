@@ -21,6 +21,7 @@ import org.example.generator.TestClasses.Cat;
 import org.example.generator.TestClasses.Color;
 import org.example.generator.TestClasses.Dog;
 import org.example.generator.TestClasses.Empty;
+import org.example.generator.TestClasses.Failing;
 import org.example.generator.TestClasses.Figure;
 import org.example.generator.TestClasses.Inventory;
 import org.example.generator.TestClasses.NoPublicConstructor;
@@ -321,6 +322,15 @@ class GeneratorTest {
         @Test
         void failsOnTypeVariable() {
             assertThrows(InstanceGenerationException.class, () -> generator.generateValueOfType(Box.class));
+        }
+
+        @Test
+        void failsWhenConstructorThrows() {
+            var e = assertThrows(InstanceGenerationException.class,
+                    () -> generator.generateValueOfType(Failing.class));
+
+            assertTrue(e.getMessage().contains(Failing.class.getName()));
+            assertInstanceOf(IllegalStateException.class, e.getCause());
         }
     }
 

@@ -12,6 +12,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.function.Supplier;
 
 import org.example.annotations.Generatable;
 import org.example.exc.InstanceGenerationException;
@@ -22,19 +23,15 @@ public class Generator {
     private static final int RECURSION_LIMIT = 3;
 
     private final Random random;
-    private final Map<Class<?>, Sampler> baseSamplers;
-
-    private interface Sampler {
-        Object generate() throws InvocationTargetException, InstantiationException, IllegalAccessException;
-    }
+    private final Map<Class<?>, Supplier<?>> baseSamplers;
 
     public Generator() {
         random = new Random();
         baseSamplers = createPrimitiveSamplers();
     }
 
-    private Map<Class<?>, Sampler> createPrimitiveSamplers() {
-        Map<Class<?>, Sampler> samplers = new HashMap<>();
+    private Map<Class<?>, Supplier<?>> createPrimitiveSamplers() {
+        Map<Class<?>, Supplier<?>> samplers = new HashMap<>();
         samplers.put(Void.class, () -> {
             throw new InstanceGenerationException("Can't generate object of void type");
         });
@@ -52,20 +49,17 @@ public class Generator {
         return samplers;
     }
 
-    public <T> T generateValueOfType(Class<T> clazz) throws InvocationTargetException, InstantiationException,
-            IllegalAccessException {
+    public <T> T generateValueOfType(Class<T> clazz) {
         return generateValueOfType(clazz, new HashMap<>());
     }
 
     @SuppressWarnings("unchecked")
-    private <T> T generateValueOfType(Class<T> clazz, Map<Class<?>, Integer> path)
-            throws InvocationTargetException, InstantiationException, IllegalAccessException {
+    private <T> T generateValueOfType(Class<T> clazz, Map<Class<?>, Integer> path) {
         var wrappedClass = (Class<T>) MethodType.methodType(clazz).wrap().returnType();
         return wrappedClass.cast(generateByClass(wrappedClass, path));
     }
 
-    private Object generateByType(Type type, Map<Class<?>, Integer> path)
-            throws InvocationTargetException, InstantiationException, IllegalAccessException {
+    private Object generateByType(Type type, Map<Class<?>, Integer> path) {
         if (type instanceof ParameterizedType parameterizedType) {
             var clazz = (Class<?>) parameterizedType.getRawType();
             var typeArgs = parameterizedType.getActualTypeArguments();
@@ -89,10 +83,9 @@ public class Generator {
         throw new InstanceGenerationException("Can't generate instance of type " + type);
     }
 
-    private Object generateByClass(Class<?> clazz, Map<Class<?>, Integer> path)
-            throws InvocationTargetException, InstantiationException, IllegalAccessException {
+    private Object generateByClass(Class<?> clazz, Map<Class<?>, Integer> path) {
         if (baseSamplers.containsKey(clazz)) {
-            return baseSamplers.get(clazz).generate();
+            return baseSamplers.get(clazz).get();
         }
 
         if (clazz.isArray()) {
@@ -135,7 +128,14 @@ public class Generator {
             path.put(clazz, repeats);
         }
 
-        return randomConstructor.newInstance(generatedParameters.toArray());
+        try {
+            return randomConstructor.newInstance(generatedParameters.toArray());
+        } catch (InvocationTargetException e) {
+            throw new InstanceGenerationException("Constructor " + randomConstructor + " threw an exception",
+                    e.getCause());
+        } catch (ReflectiveOperationException e) {
+            throw new InstanceGenerationException("Can't invoke constructor " + randomConstructor, e);
+        }
     }
 
     private static Class<?>[] getGeneratableImplementations(Class<?> clazz) {
@@ -157,18 +157,17 @@ public class Generator {
         return random.nextInt(SEQUENCE_LOWER_BOUND, SEQUENCE_UPPER_BOUND + 1);
     }
 
-    private String generateString() throws InvocationTargetException, InstantiationException, IllegalAccessException {
+    private String generateString() {
         int strLength = generateSequenceSize();
         var stringBuilder = new StringBuilder();
         var charSampler = baseSamplers.get(Character.class);
         for (int i = 0; i < strLength; i++) {
-            stringBuilder.append(charSampler.generate());
+            stringBuilder.append(charSampler.get());
         }
         return stringBuilder.toString();
     }
 
-    private Object generateArray(Class<?> clazz, Map<Class<?>, Integer> path)
-            throws InvocationTargetException, InstantiationException, IllegalAccessException {
+    private Object generateArray(Class<?> clazz, Map<Class<?>, Integer> path) {
         if (!clazz.isArray()) {
             return generateValueOfType(clazz, path);
         }
@@ -180,8 +179,7 @@ public class Generator {
         return array;
     }
 
-    private List<?> generateList(Type type, Map<Class<?>, Integer> path)
-            throws InvocationTargetException, InstantiationException, IllegalAccessException {
+    private List<?> generateList(Type type, Map<Class<?>, Integer> path) {
         int size = generateSequenceSize();
         List<Object> list = new ArrayList<>();
         for (int i = 0; i < size; i++) {
@@ -190,8 +188,7 @@ public class Generator {
         return list;
     }
 
-    private Map<Object, Object> generateMap(Type keyType, Type valueType, Map<Class<?>, Integer> path)
-            throws InvocationTargetException, InstantiationException, IllegalAccessException {
+    private Map<Object, Object> generateMap(Type keyType, Type valueType, Map<Class<?>, Integer> path) {
         int size = generateSequenceSize();
         Map<Object, Object> map = new HashMap<>();
         for (int i = 0; i < size; i++) {

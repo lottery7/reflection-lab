@@ -142,6 +142,12 @@ public final class TestClasses {
         }
     }
 
+    public static class Failing {
+        public Failing() {
+            throw new IllegalStateException("Failing constructor");
+        }
+    }
+
     public static class Box<T> {
         public final T value;
 
