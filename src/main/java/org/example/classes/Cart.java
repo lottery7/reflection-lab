@@ -18,4 +18,11 @@ public class Cart {
     }
 
     // Конструктор, методы добавления и удаления товаров, геттеры и другие методы
+
+    @Override
+    public String toString() {
+        return "Cart{" +
+                "items=" + items +
+                '}';
+    }
 }
