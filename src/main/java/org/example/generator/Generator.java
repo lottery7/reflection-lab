@@ -8,25 +8,34 @@ import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.lang.reflect.WildcardType;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.example.annotations.Generatable;
 import org.example.exc.InstanceGenerationException;
 
 public class Generator {
     private static final int SEQUENCE_LOWER_BOUND = 1;
-    private static final int SEQUENCE_UPPER_BOUND = 5;
+    private static final int SEQUENCE_UPPER_BOUND = 7;
     private static final int RECURSION_LIMIT = 3;
+    private static final Type DEFAULT_TYPE_ARGUMENT = Integer.class;
 
     private final Random random;
     private final Map<Class<?>, Supplier<?>> baseSamplers;
 
     public Generator() {
         random = new Random();
+        baseSamplers = createPrimitiveSamplers();
+    }
+
+    public Generator(int seed) {
+        random = new Random(seed);
         baseSamplers = createPrimitiveSamplers();
     }
 
@@ -43,70 +52,79 @@ public class Generator {
         samplers.put(Long.class, random::nextLong);
         samplers.put(Float.class, random::nextFloat);
         samplers.put(Double.class, random::nextDouble);
-        samplers.put(String.class, this::generateString);
-        samplers.put(List.class, () -> this.generateList(Integer.class, new HashMap<>()));
-        samplers.put(Map.class, () -> this.generateMap(Integer.class, Integer.class, new HashMap<>()));
+        samplers.put(String.class, () -> new String((char[]) generateArray(char.class, Collections.emptyMap())));
         return samplers;
     }
 
     public <T> T generateValueOfType(Class<T> clazz) {
-        return generateValueOfType(clazz, new HashMap<>());
+        return wrap(clazz).cast(generate(clazz, new HashMap<>()));
     }
 
-    @SuppressWarnings("unchecked")
-    private <T> T generateValueOfType(Class<T> clazz, Map<Class<?>, Integer> path) {
-        var wrappedClass = (Class<T>) MethodType.methodType(clazz).wrap().returnType();
-        return wrappedClass.cast(generateByClass(wrappedClass, path));
-    }
-
-    private Object generateByType(Type type, Map<Class<?>, Integer> path) {
-        if (type instanceof ParameterizedType parameterizedType) {
-            var clazz = (Class<?>) parameterizedType.getRawType();
-            var typeArgs = parameterizedType.getActualTypeArguments();
-            if (clazz == List.class) {
-                return generateList(typeArgs[0], path);
+    private Object generate(Type type, Map<Class<?>, Integer> typeRepeats) {
+        Class<?> clazz;
+        Type[] typeArgs;
+        switch (type) {
+            case WildcardType wildcardType -> {
+                return generate(wildcardType.getUpperBounds()[0], typeRepeats);
             }
-            if (clazz == Map.class) {
-                return generateMap(typeArgs[0], typeArgs[1], path);
+            case ParameterizedType parameterizedType -> {
+                clazz = (Class<?>) parameterizedType.getRawType();
+                typeArgs = parameterizedType.getActualTypeArguments();
             }
-            return generateValueOfType(clazz, path);
+            case Class<?> c -> {
+                clazz = wrap(c);
+                typeArgs = new Type[0];
+            }
+            default -> throw new InstanceGenerationException("Can't generate instance of type " + type);
         }
 
-        if (type instanceof WildcardType w) {
-            return generateByType(w.getUpperBounds()[0], path);
-        }
-
-        if (type instanceof Class<?> clazz) {
-            return generateValueOfType(clazz, path);
-        }
-
-        throw new InstanceGenerationException("Can't generate instance of type " + type);
-    }
-
-    private Object generateByClass(Class<?> clazz, Map<Class<?>, Integer> path) {
         if (baseSamplers.containsKey(clazz)) {
             return baseSamplers.get(clazz).get();
         }
 
         if (clazz.isArray()) {
-            return generateArray(clazz, path);
+            return generateArray(clazz.getComponentType(), typeRepeats);
         }
 
         if (clazz.isEnum()) {
-            var enumConstants = clazz.getEnumConstants();
-            if (enumConstants.length == 0) {
-                return null;
-            }
-            return enumConstants[random.nextInt(enumConstants.length)];
+            return generateEnum(clazz);
+        }
+
+        if (clazz == List.class) {
+            return generateList(getTypeArgument(typeArgs, 0), typeRepeats);
+        }
+
+        if (clazz == Map.class) {
+            return generateMap(getTypeArgument(typeArgs, 0), getTypeArgument(typeArgs, 1), typeRepeats);
         }
 
         if (clazz.isInterface() || Modifier.isAbstract(clazz.getModifiers())) {
-            var generatableImplementations = getGeneratableImplementations(clazz);
-            var randomImplementation = generatableImplementations[random.nextInt(generatableImplementations.length)];
-            return generateByClass(randomImplementation, path);
+            var impls = getGeneratableImpls(clazz);
+            return generate(impls[random.nextInt(impls.length)], typeRepeats);
         }
 
-        int repeats = path.getOrDefault(clazz, 0);
+        return generateObject(clazz, typeRepeats);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> Class<T> wrap(Class<T> clazz) {
+        return (Class<T>) MethodType.methodType(clazz).wrap().returnType();
+    }
+
+    private static Type getTypeArgument(Type[] typeArgs, int index) {
+        return index < typeArgs.length ? typeArgs[index] : DEFAULT_TYPE_ARGUMENT;
+    }
+
+    private Object generateEnum(Class<?> clazz) {
+        var enumConstants = clazz.getEnumConstants();
+        if (enumConstants.length == 0) {
+            throw new InstanceGenerationException("Can't generate value of empty enum " + clazz.getName());
+        }
+        return enumConstants[random.nextInt(enumConstants.length)];
+    }
+
+    private Object generateObject(Class<?> clazz, Map<Class<?>, Integer> typeRepeats) {
+        int repeats = typeRepeats.getOrDefault(clazz, 0);
         if (repeats >= RECURSION_LIMIT) {
             return null;
         }
@@ -119,13 +137,20 @@ public class Generator {
         var randomConstructor = constructors[random.nextInt(constructors.length)];
         var constructorParameters = randomConstructor.getParameters();
         List<Object> generatedParameters = new ArrayList<>();
-        path.put(clazz, repeats + 1);
+        typeRepeats.put(clazz, repeats + 1);
         try {
             for (var parameter : constructorParameters) {
-                generatedParameters.add(generateByType(parameter.getParameterizedType(), path));
+                try {
+                    generatedParameters.add(generate(parameter.getParameterizedType(), typeRepeats));
+                } catch (InstanceGenerationException e) {
+                    throw new InstanceGenerationException(
+                            "Can't generate parameter " + parameter.getName()
+                                    + " of type " + parameter.getParameterizedType().getTypeName()
+                                    + " for constructor " + randomConstructor.toGenericString(), e);
+                }
             }
         } finally {
-            path.put(clazz, repeats);
+            typeRepeats.put(clazz, repeats);
         }
 
         try {
@@ -138,62 +163,45 @@ public class Generator {
         }
     }
 
-    private static Class<?>[] getGeneratableImplementations(Class<?> clazz) {
+    private static Class<?>[] getGeneratableImpls(Class<?> clazz) {
         var generatableAnnotation = clazz.getAnnotation(Generatable.class);
         if (generatableAnnotation == null || generatableAnnotation.value().length == 0) {
             throw new InstanceGenerationException("No @Generatable implementations for " + clazz.getName());
         }
-        var generatableImplementations = generatableAnnotation.value();
-        for (var implementation : generatableImplementations) {
-            if (!clazz.isAssignableFrom(implementation)) {
-                throw new InstanceGenerationException("@Generatable implementation " + implementation.getName()
-                        + " is not a subtype of " + clazz.getName());
+        var generatableImpls = generatableAnnotation.value();
+        for (var impl : generatableImpls) {
+            if (impl == clazz) {
+                throw new InstanceGenerationException(
+                        "@Generatable on " + clazz.getName() + " references itself");
+            }
+            if (!clazz.isAssignableFrom(impl)) {
+                throw new InstanceGenerationException(
+                        "@Generatable implementation " + impl.getName() + " is not a subtype of " + clazz.getName()
+                );
             }
         }
-        return generatableImplementations;
+        return generatableImpls;
     }
 
-    private int generateSequenceSize() {
-        return random.nextInt(SEQUENCE_LOWER_BOUND, SEQUENCE_UPPER_BOUND + 1);
+    private List<Object> generateList(Type type, Map<Class<?>, Integer> typeRepeats) {
+        int size = random.nextInt(SEQUENCE_LOWER_BOUND, SEQUENCE_UPPER_BOUND);
+        return Stream.generate(() -> generate(type, typeRepeats))
+                .limit(size)
+                .collect(Collectors.toCollection(ArrayList<Object>::new));
     }
 
-    private String generateString() {
-        int strLength = generateSequenceSize();
-        var stringBuilder = new StringBuilder();
-        var charSampler = baseSamplers.get(Character.class);
-        for (int i = 0; i < strLength; i++) {
-            stringBuilder.append(charSampler.get());
-        }
-        return stringBuilder.toString();
-    }
-
-    private Object generateArray(Class<?> clazz, Map<Class<?>, Integer> path) {
-        if (!clazz.isArray()) {
-            return generateValueOfType(clazz, path);
-        }
-        int size = generateSequenceSize();
-        var array = Array.newInstance(clazz.getComponentType(), size);
-        for (int i = 0; i < size; i++) {
-            Array.set(array, i, generateArray(clazz.getComponentType(), path));
+    private Object generateArray(Class<?> componentType, Map<Class<?>, Integer> typeRepeats) {
+        var elements = generateList(componentType, typeRepeats);
+        var array = Array.newInstance(componentType, elements.size());
+        for (int i = 0; i < elements.size(); i++) {
+            Array.set(array, i, elements.get(i));
         }
         return array;
     }
 
-    private List<?> generateList(Type type, Map<Class<?>, Integer> path) {
-        int size = generateSequenceSize();
-        List<Object> list = new ArrayList<>();
-        for (int i = 0; i < size; i++) {
-            list.add(generateByType(type, path));
-        }
-        return list;
-    }
-
-    private Map<Object, Object> generateMap(Type keyType, Type valueType, Map<Class<?>, Integer> path) {
-        int size = generateSequenceSize();
+    private Map<Object, Object> generateMap(Type keyType, Type valueType, Map<Class<?>, Integer> typeRepeats) {
         Map<Object, Object> map = new HashMap<>();
-        for (int i = 0; i < size; i++) {
-            map.put(generateByType(keyType, path), generateByType(valueType, path));
-        }
+        generateList(keyType, typeRepeats).forEach(key -> map.put(key, generate(valueType, typeRepeats)));
         return map;
     }
 }

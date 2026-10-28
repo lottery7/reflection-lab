@@ -15,12 +15,14 @@ import org.example.classes.Shape;
 import org.example.classes.Triangle;
 import org.example.exc.InstanceGenerationException;
 import org.example.generator.TestClasses.A;
+import org.example.generator.TestClasses.AbstractRoot;
 import org.example.generator.TestClasses.Animal;
 import org.example.generator.TestClasses.Box;
 import org.example.generator.TestClasses.Cat;
 import org.example.generator.TestClasses.Color;
 import org.example.generator.TestClasses.Dog;
 import org.example.generator.TestClasses.Empty;
+import org.example.generator.TestClasses.EmptyImplementations;
 import org.example.generator.TestClasses.Failing;
 import org.example.generator.TestClasses.Figure;
 import org.example.generator.TestClasses.Inventory;
@@ -28,8 +30,10 @@ import org.example.generator.TestClasses.NoPublicConstructor;
 import org.example.generator.TestClasses.Person;
 import org.example.generator.TestClasses.Point;
 import org.example.generator.TestClasses.Sedan;
+import org.example.generator.TestClasses.SelfReferencing;
 import org.example.generator.TestClasses.Square;
 import org.example.generator.TestClasses.Unannotated;
+import org.example.generator.TestClasses.UnannotatedAbstract;
 import org.example.generator.TestClasses.Vehicle;
 import org.example.generator.TestClasses.WrongImplementation;
 import org.example.generator.TestClasses.X;
@@ -44,7 +48,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -101,8 +104,11 @@ class GeneratorTest {
         }
 
         @Test
-        void generatesNullForEmptyEnum() throws Exception {
-            assertNull(generator.generateValueOfType(Empty.class));
+        void failsOnEmptyEnum() {
+            var e = assertThrows(InstanceGenerationException.class,
+                    () -> generator.generateValueOfType(Empty.class));
+
+            assertTrue(e.getMessage().contains(Empty.class.getName()));
         }
     }
 
@@ -297,12 +303,37 @@ class GeneratorTest {
         }
 
         @Test
+        void failsOnGeneratableWithEmptyImplementations() {
+            var e = assertThrows(InstanceGenerationException.class,
+                    () -> generator.generateValueOfType(EmptyImplementations.class));
+
+            assertTrue(e.getMessage().contains(EmptyImplementations.class.getName()));
+        }
+
+        @Test
+        void failsOnIntermediateAbstractClassWithoutGeneratable() {
+            var e = assertThrows(InstanceGenerationException.class,
+                    () -> generator.generateValueOfType(AbstractRoot.class));
+
+            assertTrue(e.getMessage().contains(UnannotatedAbstract.class.getName()));
+            assertTrue(e.getMessage().contains("No @Generatable implementations"));
+        }
+
+        @Test
         void failsOnGeneratableWithNonSubtype() {
             var e = assertThrows(InstanceGenerationException.class,
                     () -> generator.generateValueOfType(WrongImplementation.class));
 
             assertTrue(e.getMessage().contains(WrongImplementation.class.getName()));
             assertTrue(e.getMessage().contains(String.class.getName()));
+        }
+
+        @Test
+        void failsOnSelfReferencingGeneratable() {
+            var e = assertThrows(InstanceGenerationException.class,
+                    () -> generator.generateValueOfType(SelfReferencing.class));
+
+            assertTrue(e.getMessage().contains(SelfReferencing.class.getName()));
         }
 
         @Test
@@ -320,8 +351,16 @@ class GeneratorTest {
         }
 
         @Test
-        void failsOnTypeVariable() {
-            assertThrows(InstanceGenerationException.class, () -> generator.generateValueOfType(Box.class));
+        void failsOnTypeVariableWithConstructorParameterContext() throws NoSuchMethodException {
+            var e = assertThrows(InstanceGenerationException.class,
+                    () -> generator.generateValueOfType(Box.class));
+
+            var parameter = Box.class.getConstructor(Object.class).getParameters()[0];
+            assertTrue(e.getMessage().contains(Box.class.getName()));
+            assertTrue(e.getMessage().contains(parameter.getName()));
+            assertTrue(e.getMessage().contains("T"));
+            var cause = assertInstanceOf(InstanceGenerationException.class, e.getCause());
+            assertTrue(cause.getMessage().contains("T"));
         }
 
         @Test

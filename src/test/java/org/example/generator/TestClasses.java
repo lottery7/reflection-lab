@@ -133,8 +133,23 @@ public final class TestClasses {
     public interface Unannotated {
     }
 
+    @Generatable({})
+    public interface EmptyImplementations {
+    }
+
+    @Generatable(UnannotatedAbstract.class)
+    public abstract static class AbstractRoot {
+    }
+
+    public abstract static class UnannotatedAbstract extends AbstractRoot {
+    }
+
     @Generatable(String.class)
     public interface WrongImplementation {
+    }
+
+    @Generatable(SelfReferencing.class)
+    public interface SelfReferencing {
     }
 
     public static class NoPublicConstructor {
