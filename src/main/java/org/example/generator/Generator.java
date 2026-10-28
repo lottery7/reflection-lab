@@ -27,14 +27,28 @@ public class Generator {
 
     private final Random random;
     private final Map<Class<?>, Supplier<?>> primitiveSamplers;
+    private final Map<Class<?>, List<Class<?>>> generatableOverrides;
 
     public Generator() {
-        random = new Random();
-        primitiveSamplers = createPrimitiveSamplers();
+        this(Map.of());
     }
 
     public Generator(int seed) {
-        random = new Random(seed);
+        this(seed, Map.of());
+    }
+
+    public Generator(Map<Class<?>, List<Class<?>>> generatableOverrides) {
+        this(new Random(), generatableOverrides);
+    }
+
+    public Generator(int seed, Map<Class<?>, List<Class<?>>> generatableOverrides) {
+        this(new Random(seed), generatableOverrides);
+    }
+
+    private Generator(Random random, Map<Class<?>, List<Class<?>>> generatableOverrides) {
+        this.random = random;
+        this.generatableOverrides = generatableOverrides.entrySet().stream()
+                .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, entry -> List.copyOf(entry.getValue())));
         primitiveSamplers = createPrimitiveSamplers();
     }
 
@@ -134,7 +148,7 @@ public class Generator {
         try {
             var constructors = clazz.getConstructors();
             if (constructors.length == 0) {
-                throw new InstanceGenerationException("Can't find public constructors for class " + clazz);
+                throw new InstanceGenerationException("Can't find public constructors for class " + clazz.getName());
             }
 
             var randomConstructor = constructors[random.nextInt(constructors.length)];
@@ -144,10 +158,8 @@ public class Generator {
                 try {
                     generatedParameters.add(generate(parameter.getParameterizedType(), context));
                 } catch (InstanceGenerationException e) {
-                    throw new InstanceGenerationException(
-                            "Can't generate parameter " + parameter.getName()
-                                    + " of type " + parameter.getParameterizedType().getTypeName()
-                                    + " for constructor " + randomConstructor.toGenericString(), e);
+                    throw new InstanceGenerationException("Can't generate parameter " + parameter.getName() + " of " +
+                            "type " + parameter.getParameterizedType().getTypeName() + " for constructor " + randomConstructor.toGenericString(), e);
                 }
             }
 
@@ -164,21 +176,24 @@ public class Generator {
         }
     }
 
-    private static Class<?>[] getGeneratableImpls(Class<?> clazz) {
-        var generatableAnnotation = clazz.getAnnotation(Generatable.class);
-        if (generatableAnnotation == null || generatableAnnotation.value().length == 0) {
-            throw new InstanceGenerationException("No @Generatable implementations for " + clazz.getName());
+    private Class<?>[] getGeneratableImpls(Class<?> clazz) {
+        List<Class<?>> overrides = generatableOverrides.get(clazz);
+        Class<?>[] generatableImpls;
+        if (overrides != null) {
+            generatableImpls = overrides.toArray(Class<?>[]::new);
+        } else {
+            var generatableAnnotation = clazz.getAnnotation(Generatable.class);
+            generatableImpls = generatableAnnotation == null ? new Class<?>[0] : generatableAnnotation.value();
         }
-        var generatableImpls = generatableAnnotation.value();
+        if (generatableImpls.length == 0) {
+            throw new InstanceGenerationException("No generatable implementations for " + clazz.getName());
+        }
         for (var impl : generatableImpls) {
             if (impl == clazz) {
-                throw new InstanceGenerationException(
-                        "@Generatable on " + clazz.getName() + " references itself");
+                throw new InstanceGenerationException("Implementation for " + clazz.getName() + " references itself");
             }
             if (!clazz.isAssignableFrom(impl)) {
-                throw new InstanceGenerationException(
-                        "@Generatable implementation " + impl.getName() + " is not a subtype of " + clazz.getName()
-                );
+                throw new InstanceGenerationException("Implementation " + impl.getName() + " is not a subtype of " + clazz.getName());
             }
         }
         return generatableImpls;

@@ -59,18 +59,6 @@ public final class TestClasses {
         }
     }
 
-    @Generatable(Square.class)
-    public interface Figure {
-    }
-
-    public static class Square implements Figure {
-        public final double side;
-
-        public Square(double side) {
-            this.side = side;
-        }
-    }
-
     @Generatable(Car.class)
     public interface Vehicle {
     }
@@ -133,6 +121,9 @@ public final class TestClasses {
     public interface Unannotated {
     }
 
+    public static class UnannotatedImplementation implements Unannotated {
+    }
+
     @Generatable({})
     public interface EmptyImplementations {
     }
@@ -146,6 +137,9 @@ public final class TestClasses {
 
     @Generatable(String.class)
     public interface WrongImplementation {
+    }
+
+    public static class CorrectImplementation implements WrongImplementation {
     }
 
     @Generatable(SelfReferencing.class)
