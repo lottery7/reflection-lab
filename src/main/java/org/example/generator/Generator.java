@@ -8,7 +8,6 @@ import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.lang.reflect.WildcardType;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,16 +26,16 @@ public class Generator {
     private static final Type DEFAULT_TYPE_ARGUMENT = Integer.class;
 
     private final Random random;
-    private final Map<Class<?>, Supplier<?>> baseSamplers;
+    private final Map<Class<?>, Supplier<?>> primitiveSamplers;
 
     public Generator() {
         random = new Random();
-        baseSamplers = createPrimitiveSamplers();
+        primitiveSamplers = createPrimitiveSamplers();
     }
 
     public Generator(int seed) {
         random = new Random(seed);
-        baseSamplers = createPrimitiveSamplers();
+        primitiveSamplers = createPrimitiveSamplers();
     }
 
     private Map<Class<?>, Supplier<?>> createPrimitiveSamplers() {
@@ -52,20 +51,20 @@ public class Generator {
         samplers.put(Long.class, random::nextLong);
         samplers.put(Float.class, random::nextFloat);
         samplers.put(Double.class, random::nextDouble);
-        samplers.put(String.class, () -> new String((char[]) generateArray(char.class, Collections.emptyMap())));
         return samplers;
     }
 
     public <T> T generateValueOfType(Class<T> clazz) {
-        return wrap(clazz).cast(generate(clazz, new HashMap<>()));
+        var context = new GenerationContext(RECURSION_LIMIT);
+        return wrap(clazz).cast(generate(clazz, context));
     }
 
-    private Object generate(Type type, Map<Class<?>, Integer> typeRepeats) {
+    private Object generate(Type type, GenerationContext context) {
         Class<?> clazz;
         Type[] typeArgs;
         switch (type) {
             case WildcardType wildcardType -> {
-                return generate(wildcardType.getUpperBounds()[0], typeRepeats);
+                return generate(wildcardType.getUpperBounds()[0], context);
             }
             case ParameterizedType parameterizedType -> {
                 clazz = (Class<?>) parameterizedType.getRawType();
@@ -78,12 +77,16 @@ public class Generator {
             default -> throw new InstanceGenerationException("Can't generate instance of type " + type);
         }
 
-        if (baseSamplers.containsKey(clazz)) {
-            return baseSamplers.get(clazz).get();
+        if (primitiveSamplers.containsKey(clazz)) {
+            return primitiveSamplers.get(clazz).get();
+        }
+
+        if (clazz == String.class) {
+            return new String((char[]) generateArray(char.class, context));
         }
 
         if (clazz.isArray()) {
-            return generateArray(clazz.getComponentType(), typeRepeats);
+            return generateArray(clazz.getComponentType(), context);
         }
 
         if (clazz.isEnum()) {
@@ -91,19 +94,19 @@ public class Generator {
         }
 
         if (clazz == List.class) {
-            return generateList(getTypeArgument(typeArgs, 0), typeRepeats);
+            return generateList(getTypeArgument(typeArgs, 0), context);
         }
 
         if (clazz == Map.class) {
-            return generateMap(getTypeArgument(typeArgs, 0), getTypeArgument(typeArgs, 1), typeRepeats);
+            return generateMap(getTypeArgument(typeArgs, 0), getTypeArgument(typeArgs, 1), context);
         }
 
         if (clazz.isInterface() || Modifier.isAbstract(clazz.getModifiers())) {
             var impls = getGeneratableImpls(clazz);
-            return generate(impls[random.nextInt(impls.length)], typeRepeats);
+            return generate(impls[random.nextInt(impls.length)], context);
         }
 
-        return generateObject(clazz, typeRepeats);
+        return generateObject(clazz, context);
     }
 
     @SuppressWarnings("unchecked")
@@ -123,25 +126,23 @@ public class Generator {
         return enumConstants[random.nextInt(enumConstants.length)];
     }
 
-    private Object generateObject(Class<?> clazz, Map<Class<?>, Integer> typeRepeats) {
-        int repeats = typeRepeats.getOrDefault(clazz, 0);
-        if (repeats >= RECURSION_LIMIT) {
+    private Object generateObject(Class<?> clazz, GenerationContext context) {
+        if (!context.tryEnter(clazz)) {
             return null;
         }
 
-        var constructors = clazz.getConstructors();
-        if (constructors.length == 0) {
-            throw new InstanceGenerationException("Can't find public constructors for class " + clazz);
-        }
-
-        var randomConstructor = constructors[random.nextInt(constructors.length)];
-        var constructorParameters = randomConstructor.getParameters();
-        List<Object> generatedParameters = new ArrayList<>();
-        typeRepeats.put(clazz, repeats + 1);
         try {
+            var constructors = clazz.getConstructors();
+            if (constructors.length == 0) {
+                throw new InstanceGenerationException("Can't find public constructors for class " + clazz);
+            }
+
+            var randomConstructor = constructors[random.nextInt(constructors.length)];
+            var constructorParameters = randomConstructor.getParameters();
+            List<Object> generatedParameters = new ArrayList<>();
             for (var parameter : constructorParameters) {
                 try {
-                    generatedParameters.add(generate(parameter.getParameterizedType(), typeRepeats));
+                    generatedParameters.add(generate(parameter.getParameterizedType(), context));
                 } catch (InstanceGenerationException e) {
                     throw new InstanceGenerationException(
                             "Can't generate parameter " + parameter.getName()
@@ -149,17 +150,17 @@ public class Generator {
                                     + " for constructor " + randomConstructor.toGenericString(), e);
                 }
             }
-        } finally {
-            typeRepeats.put(clazz, repeats);
-        }
 
-        try {
-            return randomConstructor.newInstance(generatedParameters.toArray());
-        } catch (InvocationTargetException e) {
-            throw new InstanceGenerationException("Constructor " + randomConstructor + " threw an exception",
-                    e.getCause());
-        } catch (ReflectiveOperationException e) {
-            throw new InstanceGenerationException("Can't invoke constructor " + randomConstructor, e);
+            try {
+                return randomConstructor.newInstance(generatedParameters.toArray());
+            } catch (InvocationTargetException e) {
+                throw new InstanceGenerationException("Constructor " + randomConstructor + " threw an exception",
+                        e.getCause());
+            } catch (ReflectiveOperationException e) {
+                throw new InstanceGenerationException("Can't invoke constructor " + randomConstructor, e);
+            }
+        } finally {
+            context.leave(clazz);
         }
     }
 
@@ -183,15 +184,15 @@ public class Generator {
         return generatableImpls;
     }
 
-    private List<Object> generateList(Type type, Map<Class<?>, Integer> typeRepeats) {
+    private List<Object> generateList(Type type, GenerationContext context) {
         int size = random.nextInt(SEQUENCE_LOWER_BOUND, SEQUENCE_UPPER_BOUND);
-        return Stream.generate(() -> generate(type, typeRepeats))
+        return Stream.generate(() -> generate(type, context))
                 .limit(size)
                 .collect(Collectors.toCollection(ArrayList<Object>::new));
     }
 
-    private Object generateArray(Class<?> componentType, Map<Class<?>, Integer> typeRepeats) {
-        var elements = generateList(componentType, typeRepeats);
+    private Object generateArray(Class<?> componentType, GenerationContext context) {
+        var elements = generateList(componentType, context);
         var array = Array.newInstance(componentType, elements.size());
         for (int i = 0; i < elements.size(); i++) {
             Array.set(array, i, elements.get(i));
@@ -199,9 +200,9 @@ public class Generator {
         return array;
     }
 
-    private Map<Object, Object> generateMap(Type keyType, Type valueType, Map<Class<?>, Integer> typeRepeats) {
+    private Map<Object, Object> generateMap(Type keyType, Type valueType, GenerationContext context) {
         Map<Object, Object> map = new HashMap<>();
-        generateList(keyType, typeRepeats).forEach(key -> map.put(key, generate(valueType, typeRepeats)));
+        generateList(keyType, context).forEach(key -> map.put(key, generate(valueType, context)));
         return map;
     }
 }
