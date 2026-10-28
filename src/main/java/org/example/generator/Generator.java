@@ -116,6 +116,9 @@ public class Generator {
         }
 
         if (clazz.isInterface() || Modifier.isAbstract(clazz.getModifiers())) {
+            if (typeArgs.length > 0) {
+                throw new InstanceGenerationException("Can't generate parameterized abstract type " + type.getTypeName());
+            }
             var impls = getGeneratableImpls(clazz);
             return generate(impls[random.nextInt(impls.length)], context);
         }
